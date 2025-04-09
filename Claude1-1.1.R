@@ -9,28 +9,52 @@ library(connectapi)
 library(DT)
 library(htmltools)
 
-# Set echarts4r theme
-echarts4r::e_common(
-  font_family = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto",
-  theme = list(
-    color = c("#4472CA", "#5E7CE2", "#36A5DB", "#0078D7", "#83C5BE", "#264653"),
-    backgroundColor = "#ffffff",
-    textStyle = list(color = "#2a2a2a"),
-    title = list(textStyle = list(color = "#2a2a2a", fontWeight = "bold")),
-    line = list(
-      smooth = TRUE,
-      width = 3
-    ),
-    splitLine = list(
-      lineStyle = list(
-        color = "#f5f5f5"
-      )
+# Replace the problematic theme configuration with this:
+
+# Set a custom theme for echarts4r
+.blue_theme <- list(
+  color = c("#4472CA", "#5E7CE2", "#36A5DB", "#0078D7", "#83C5BE", "#264653"),
+  backgroundColor = "#ffffff",
+  textStyle = list(
+    color = "#2a2a2a"
+  ),
+  title = list(
+    textStyle = list(
+      color = "#2a2a2a",
+      fontWeight = "bold"
+    )
+  ),
+  line = list(
+    smooth = TRUE
+  ),
+  grid = list(
+    left = "3%",
+    right = "4%",
+    bottom = "10%",
+    containLabel = TRUE
+  ),
+  tooltip = list(
+    trigger = "axis",
+    axisPointer = list(
+      type = "shadow"
+    )
+  ),
+  legend = list(
+    textStyle = list(
+      color = "#2a2a2a"
     )
   )
 )
 
+# Register the theme with echarts4r
+echarts4r::e_theme_register(.blue_theme |> jsonlite::toJSON(), name = "blue_theme")
+
+# Then, in each chart creation, apply the theme like this:
+# e_charts(...) %>% e_theme("blue_theme")
+
 ui <- page_sidebar(
   title = "Connect Usage Analytics",
+  fillable = FALSE,
   theme = bs_theme(
     version = 5,
     bootswatch = "default",
@@ -139,6 +163,7 @@ server <- function(input, output, session) {
       # Use environment variables for authentication
       client <- connectapi::connect()
 
+      # browser()
       # Test the connection
       content_test <- connectapi::get_content(client, limit = 1)
 
@@ -161,7 +186,9 @@ server <- function(input, output, session) {
 
     # Get usage data
     withProgress(message = "Fetching usage data...", {
-      values$usage_data <- connectapi::get_usage_shiny(values$client)
+      values$usage_data <-
+        connectapi::get_usage_shiny(values$client) |>
+        mutate(duration = started %--% ended / dseconds())
     })
 
     # Get apps and users for filters
@@ -172,7 +199,7 @@ server <- function(input, output, session) {
 
     # Update select inputs
     updateSelectizeInput(session, "app_filter",
-                         choices = c("All" = "", setNames(values$apps$guid, values$apps$title)))
+                         choices = c("All" = "", setNames(values$apps$guid, values$apps$name)))
 
     updateSelectizeInput(session, "user_filter",
                          choices = c("All" = "", setNames(values$users$guid, values$users$username)))
@@ -229,6 +256,7 @@ server <- function(input, output, session) {
   output$usage_time_chart <- renderEcharts4r({
     req(values$filtered_data)
 
+    # browser()
     # Prepare data - daily aggregation
     daily_usage <- values$filtered_data %>%
       mutate(date = as.Date(started)) %>%
@@ -341,13 +369,14 @@ server <- function(input, output, session) {
   output$raw_data_table <- renderDT({
     req(values$filtered_data)
 
+    # browser()
+
     # Join with apps and users data
     display_data <- values$filtered_data %>%
       left_join(values$apps %>% select(guid, title), by = c("content_guid" = "guid")) %>%
       left_join(values$users %>% select(guid, username), by = c("user_guid" = "guid")) %>%
       select(
-        started, ended, duration, title, username,
-        session_id, browser, platform, mobile, client
+        started, ended, duration, title, username
       )
 
     datatable(
